@@ -1,28 +1,29 @@
 # Steam Reviews — Big Data Analysis
 
-Progetto per l'esame di [nome corso] — analisi di un dataset simulando una
-sorgente big-data, con pipeline scalabile basata su Hadoop MapReduce, Spark e MongoDB.
+Project for the [course name] exam — analysis of a dataset simulating a
+big-data source, using a scalable pipeline based on Hadoop MapReduce, Spark
+and MongoDB.
 
-## Ipotesi di ricerca
+## Research hypothesis
 
-Le ore di gioco al momento della recensione influenzano la probabilità che il
-giocatore raccomandi il gioco, e questo effetto varia in base al genere/prezzo
-del gioco?
+Does the playtime at the moment of the review affect the probability that a
+player recommends the game, and does this effect change depending on the
+game's genre/price?
 
 ## Dataset
 
 [Game Recommendations on Steam](https://www.kaggle.com/datasets/antonkozyriev/game-recommendations-on-steam)
-(Kaggle) — ~41M recensioni utente + metadati di ~50k giochi.
+(Kaggle) — ~41M user reviews + metadata for ~50k games.
 
-## Architettura
+## Architecture
 
-_(diagramma e dettagli in `docs/architecture.md`, in arrivo)_
+_(diagram and details in `docs/architecture.md`, coming soon)_
 
-1. **Preprocessing** (pandas) — pulizia e join di `games.csv` e `recommendations.csv`
-2. **Ingestion** (HDFS) — simulazione di arrivo dati in streaming
-3. **MapReduce** (Hadoop Streaming) — analisi testuale delle recensioni
-4. **Spark** — aggregazioni statistiche + Machine Learning (MLlib)
-5. **MongoDB** — query di analisi aggregate
+1. **Preprocessing** (pandas) — cleaning and joining `games.csv` and `recommendations.csv`
+2. **Ingestion** (HDFS) — simulating data arriving as a stream
+3. **MapReduce** (Hadoop Streaming) — text analysis of the reviews
+4. **Spark** — statistical aggregations + Machine Learning (MLlib)
+5. **MongoDB** — aggregate analysis queries
 
 ## Setup
 
@@ -32,15 +33,39 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Come eseguire
+## How to run
 
-_(istruzioni aggiornate man mano che si aggiungono le fasi)_
+_(instructions updated as new phases are added)_
 
-### Fase 0 — Preprocessing
+### Phase 0 — Preprocessing
 
-```bash
-python src/preprocessing/fase0_preprocessing.py
+1. Create a `data/` folder in the project root:
+   ```bash
+   mkdir data
+   ```
+2. Download `games.csv` and `recommendations.csv` from the Kaggle link above
+   and place them inside `data/`.
+3. Run the script:
+   ```bash
+   python src/preprocessing/fase0_preprocessing.py
+   ```
+
+#### Results
+
+Running the script on the full Kaggle dataset produced:
+
+- `games.csv`: 50,872 rows after cleaning
+- `recommendations.csv`: 5,000,000 rows read (chunked), 500,000 rows kept
+  after cleaning and sampling
+- Final merged dataset: 500,000 rows, 21 columns
+
+Final columns:
+
+```
+app_id, helpful, funny, date, is_recommended, hours, user_id, review_id,
+title, date_release, win, mac, linux, rating, positive_ratio, user_reviews,
+price_final, price_original, discount, steam_deck, price_bucket
 ```
 
-Scarica manualmente `games.csv` e `recommendations.csv` dal link Kaggle sopra
-e posizionali nella cartella `data/` prima di eseguire lo script.
+The output is saved as `data/steam_reviews_clean.csv`, ready to be used as
+input for Phase 1 (HDFS ingestion).
