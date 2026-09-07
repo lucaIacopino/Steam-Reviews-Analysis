@@ -1,6 +1,13 @@
 """
 FASE 0 - Preprocessing del dataset "Game Recommendations on Steam"
 Dataset: https://www.kaggle.com/datasets/antonkozyriev/game-recommendations-on-steam
+
+Obiettivo:
+1. Caricare games.csv e recommendations.csv
+2. Pulire i dati (null, tipi)
+3. Fare il join tra le due tabelle (arricchire ogni recensione con i metadati del gioco)
+4. Campionare un sottoinsieme gestibile in locale
+5. Esportare un CSV pulito, pronto per l'ingestion su HDFS (Fase 1)
 """
 
 import pandas as pd
@@ -20,19 +27,13 @@ def load_games(path: str) -> pd.DataFrame:
     """Carica e pulisce i metadati dei giochi."""
     df = pd.read_csv(path)
 
-    # Colonne attese: app_id, title, date_release, win, mac, linux,
-    # rating, positive_ratio, user_reviews, price_final, price_original,
-    # discount, steam_deck
     print(f"[games.csv] righe iniziali: {len(df)}")
 
-    # Rimuovi righe senza titolo o senza prezzo (dati incompleti)
     df = df.dropna(subset=["app_id", "title", "price_final"])
 
-    # Cast espliciti
     df["price_final"] = df["price_final"].astype(float)
     df["date_release"] = pd.to_datetime(df["date_release"], errors="coerce")
 
-    # Crea una fascia di prezzo, utile per le analisi successive (Spark/Mongo)
     def price_bucket(p):
         if p == 0:
             return "free"
@@ -51,8 +52,6 @@ def load_games(path: str) -> pd.DataFrame:
 
 def load_recommendations(path: str, sample_size: int, seed: int) -> pd.DataFrame:
     """Carica un campione delle recensioni e le pulisce."""
-    # Il file è enorme (41M righe): leggiamo tutto in chunk e campioniamo
-    # per non saturare la RAM.
     chunks = []
     chunk_size = 200_000
     total_read = 0
@@ -60,26 +59,20 @@ def load_recommendations(path: str, sample_size: int, seed: int) -> pd.DataFrame
     for chunk in pd.read_csv(path, chunksize=chunk_size):
         chunks.append(chunk)
         total_read += len(chunk)
-        # Ci fermiamo dopo aver letto un numero di righe sufficiente
-        # a garantire un campione rappresentativo (es. 10x il sample finale)
         if total_read >= sample_size * 10:
             break
 
     df = pd.concat(chunks, ignore_index=True)
     print(f"[recommendations.csv] righe lette: {len(df)}")
 
-    # Colonne attese: app_id, helpful, funny, date, is_recommended,
-    # hours, user_id, review_id
     df = df.dropna(subset=["app_id", "is_recommended", "hours"])
 
     df["hours"] = df["hours"].astype(float)
     df["is_recommended"] = df["is_recommended"].astype(bool)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    # Rimuovi outlier evidenti (ore di gioco negative o assurdamente alte)
     df = df[(df["hours"] >= 0) & (df["hours"] < 10000)]
 
-    # Campionamento finale
     if len(df) > sample_size:
         df = df.sample(n=sample_size, random_state=seed)
 
@@ -87,8 +80,26 @@ def load_recommendations(path: str, sample_size: int, seed: int) -> pd.DataFrame
     return df
 
 
-if __name__ == "__main__":
+def join_and_export(games: pd.DataFrame, reviews: pd.DataFrame, output_path: str):
+    """Unisce le due tabelle e salva il risultato."""
+    merged = reviews.merge(games, on="app_id", how="inner")
+
+    print(f"[merge] righe finali: {len(merged)}")
+    print(f"[merge] colonne: {list(merged.columns)}")
+
+    # Ordina per data per rendere più naturale la simulazione di streaming
+    # nella Fase 1 (dati che "arrivano" in ordine cronologico)
+    merged = merged.sort_values("date")
+
+    merged.to_csv(output_path, index=False)
+    print(f"Salvato dataset pulito in: {output_path}")
+
+
+def main():
     games = load_games(GAMES_PATH)
     reviews = load_recommendations(RECOMMENDATIONS_PATH, SAMPLE_SIZE, RANDOM_SEED)
-    print(games.head())
-    print(reviews.head())
+    join_and_export(games, reviews, OUTPUT_PATH)
+
+
+if __name__ == "__main__":
+    main()
