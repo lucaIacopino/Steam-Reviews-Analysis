@@ -21,7 +21,7 @@ _(diagram and details in `docs/architecture.md`, coming soon)_
 
 1. **Preprocessing** (pandas) — cleaning and joining `games.csv` and `recommendations.csv`
 2. **Ingestion** (HDFS) — simulating data arriving as a stream
-3. **MapReduce** (Hadoop Streaming) — text analysis of the reviews
+3. **MapReduce** (Hadoop Streaming) — recommendation rate per playtime bucket
 4. **Spark** — statistical aggregations + Machine Learning (MLlib)
 5. **MongoDB** — aggregate analysis queries
 
@@ -31,8 +31,8 @@ Environment setup (Hadoop, Spark, MongoDB) is documented in
 [`docs/setup.md`](docs/setup.md).
 
 ```bash
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -55,11 +55,9 @@ _(instructions updated as new phases are added)_
 
 #### Results
 
-Running the script on the full Kaggle dataset produced:
-
 - `games.csv`: 50,872 rows after cleaning
-- `recommendations.csv`: 5,000,000 rows read (chunked), 500,000 rows kept
-  after cleaning and sampling
+- `recommendations.csv`: 500,000 rows sampled from the first 5,000,000
+  records of the file
 - Final merged dataset: 500,000 rows, 21 columns
 
 Final columns:
@@ -121,6 +119,49 @@ system, not by the loader.
 [verify] total size: 67.9 M
 ```
 
-Total wall-clock time is a few minutes: each `hdfs dfs -put` call starts its
-own JVM, which dominates the per-chunk cost. This is acceptable here since
-the goal is to model a stream, not to maximise ingestion throughput.
+### Phase 2 — MapReduce job
+
+Computes the **recommendation rate per playtime bucket**: does a player who
+spent more time in a game end up recommending it more often?
+
+- `mapper.py` maps each review's `hours` into a discrete bucket and emits
+  `bucket \t 1` if the review recommends the game, `bucket \t 0` otherwise
+- `reducer.py` aggregates each bucket into
+  `bucket \t total \t recommended \t rate`
+
+Run it with HDFS and YARN up:
+
+```bash
+bash src/mapreduce/run_job.sh
+```
+
+The script clears the previous output directory (Hadoop refuses to write
+into an existing one), submits the job via Hadoop Streaming, and prints the
+result.
+
+#### Results
+
+| Playtime | Reviews | Recommended | Rate |
+|---|---:|---:|---:|
+| 0-1h | 6,626 | 2,326 | 35.1% |
+| 1-5h | 18,484 | 10,625 | 57.5% |
+| 5-20h | 65,580 | 53,913 | 82.2% |
+| 20-100h | 158,660 | 137,418 | 86.6% |
+| 100h+ | 250,650 | 218,341 | 87.1% |
+
+The recommendation rate increases monotonically with playtime, which
+supports the hypothesis. The relationship is far from linear: the sharpest
+jump is between the 1-5h and 5-20h buckets (+25 points), after which the
+curve flattens — beyond roughly 20 hours, additional playtime barely moves
+the rate.
+
+Playtime is capped at 999.9 hours in the source data, so the last bucket is
+effectively 100-999.9h.
+
+#### A note on parallelism
+
+Hadoop creates one map task per input file, so the 500 ingested chunks
+produce 500 splits. On a single-node pseudo-distributed cluster these run
+essentially serially and container startup dominates the actual work. On a
+real cluster the same 500 tasks would be spread across nodes and executed in
+parallel — this is precisely the property the architecture is designed for.
