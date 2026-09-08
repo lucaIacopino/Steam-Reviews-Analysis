@@ -7,8 +7,11 @@ data continuously arriving from a big-data source.
 """
 
 import getpass
+import glob
 import os
+import re
 import subprocess
+import time
 
 import pandas as pd
 
@@ -25,6 +28,11 @@ CHUNK_SIZE = 1000
 # HDFS destination. Port 9000 is the one configured in core-site.xml.
 HDFS_USER = getpass.getuser()
 HDFS_PATH = f"hdfs://localhost:9000/user/{HDFS_USER}/steam/streaming_input"
+
+# Delay between uploads, in seconds. In a real deployment the ingestion rate
+# would be dictated by the source; here it is an arbitrary parameter used
+# only to make the stream observable.
+DELAY_SECONDS = 0.5
 
 
 def split_into_chunks(input_csv: str, parts_dir: str, chunk_size: int) -> int:
@@ -65,6 +73,34 @@ def prepare_hdfs_dir(hdfs_path: str, clean: bool = True):
     print(f"[hdfs] ready: '{hdfs_path}'")
 
 
+def _chunk_index(path: str) -> int:
+    """Extract the numeric index from a part filename, for correct ordering.
+
+    Plain lexicographic sorting would put part_10 before part_2.
+    """
+    match = re.search(r"part_(\d+)\.csv$", path)
+    return int(match.group(1)) if match else -1
+
+
+def stream_to_hdfs(parts_dir: str, hdfs_path: str, delay: float):
+    """Upload the chunks to HDFS one at a time, simulating a live stream."""
+    parts = sorted(glob.glob(os.path.join(parts_dir, "part_*.csv")), key=_chunk_index)
+    total = len(parts)
+
+    if total == 0:
+        raise RuntimeError(f"no chunks found in '{parts_dir}' - run the split first")
+
+    print(f"[stream] uploading {total} chunks with {delay}s delay")
+
+    for i, part in enumerate(parts, start=1):
+        subprocess.run(["hdfs", "dfs", "-put", "-f", part, hdfs_path], check=True)
+        print(f"[stream] {os.path.basename(part)} -> HDFS  [{i}/{total}]")
+        time.sleep(delay)
+
+    print("[stream] ingestion complete")
+
+
 if __name__ == "__main__":
     split_into_chunks(INPUT_CSV, PARTS_DIR, CHUNK_SIZE)
     prepare_hdfs_dir(HDFS_PATH)
+    stream_to_hdfs(PARTS_DIR, HDFS_PATH, DELAY_SECONDS)
