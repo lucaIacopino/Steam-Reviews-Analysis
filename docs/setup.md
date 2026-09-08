@@ -53,7 +53,15 @@ source ~/.bashrc
 Write the 4 configuration files (this overwrites them completely with a
 valid, minimal single-node config):
 
+Note the `hadoop.tmp.dir` property below: by default Hadoop stores the
+NameNode metadata under `/tmp`, which Ubuntu wipes on every reboot. Without
+this setting the NameNode fails to start after a restart and HDFS refuses
+connections on port 9000.
+
 ```bash
+sudo mkdir -p /usr/local/hadoop_data
+sudo chown -R $(whoami):$(whoami) /usr/local/hadoop_data
+
 sudo tee $HADOOP_HOME/etc/hadoop/core-site.xml > /dev/null << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
@@ -61,6 +69,10 @@ sudo tee $HADOOP_HOME/etc/hadoop/core-site.xml > /dev/null << 'EOF'
   <property>
     <name>fs.defaultFS</name>
     <value>hdfs://localhost:9000</value>
+  </property>
+  <property>
+    <name>hadoop.tmp.dir</name>
+    <value>/usr/local/hadoop_data</value>
   </property>
 </configuration>
 EOF
@@ -200,7 +212,37 @@ sudo systemctl restart mongod
 sudo systemctl status mongod
 ```
 
-## 6. Verification checklist
+## 6. Restarting after a reboot
+
+Hadoop daemons do **not** start automatically. After every reboot, before
+running any job:
+
+```bash
+start-dfs.sh
+start-yarn.sh
+jps
+```
+
+Do **not** run `hdfs namenode -format` again — that wipes HDFS. Formatting
+is a one-time operation.
+
+MongoDB restarts on its own because it was enabled with
+`systemctl enable mongod`. To stop or restart it manually:
+
+```bash
+sudo systemctl stop mongod
+sudo systemctl start mongod
+sudo systemctl status mongod
+```
+
+To shut Hadoop down cleanly:
+
+```bash
+stop-yarn.sh
+stop-dfs.sh
+```
+
+## 7. Verification checklist
 
 ```bash
 jps
