@@ -68,11 +68,12 @@ def prepare_hdfs_dir(hdfs_path: str, clean: bool = True):
     """
     if clean:
         # -f avoids an error if the directory does not exist yet
-        subprocess.run(
+        result = subprocess.run(
             ["hdfs", "dfs", "-rm", "-r", "-f", "-skipTrash", hdfs_path],
             check=False,
         )
-        print(f"[hdfs] cleaned '{hdfs_path}'")
+        if result.returncode == 0:
+            print(f"[hdfs] cleaned '{hdfs_path}'")
 
     subprocess.run(["hdfs", "dfs", "-mkdir", "-p", hdfs_path], check=True)
     print(f"[hdfs] ready: '{hdfs_path}'")
