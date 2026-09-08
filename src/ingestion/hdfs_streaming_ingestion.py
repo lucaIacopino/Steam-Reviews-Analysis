@@ -4,6 +4,11 @@ PHASE 1 - Data ingestion into HDFS (simulated streaming)
 The cleaned dataset produced in phase 0 is split into small chunks and then
 uploaded to HDFS one at a time, with a delay between uploads, to simulate
 data continuously arriving from a big-data source.
+
+Usage:
+    python src/ingestion/hdfs_streaming_ingestion.py
+
+Requires a running HDFS cluster (see docs/setup.md).
 """
 
 import getpass
@@ -100,7 +105,36 @@ def stream_to_hdfs(parts_dir: str, hdfs_path: str, delay: float):
     print("[stream] ingestion complete")
 
 
-if __name__ == "__main__":
-    split_into_chunks(INPUT_CSV, PARTS_DIR, CHUNK_SIZE)
+def verify_ingestion(hdfs_path: str, expected: int):
+    """Check how many files actually landed on HDFS and report the size."""
+    result = subprocess.run(
+        ["hdfs", "dfs", "-ls", hdfs_path],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    # Each file is one line; the first line is the "Found N items" header
+    uploaded = [line for line in result.stdout.splitlines() if "part_" in line]
+
+    print(f"[verify] files on HDFS: {len(uploaded)} (expected {expected})")
+    if len(uploaded) != expected:
+        print("[verify] WARNING: file count mismatch")
+
+    size = subprocess.run(
+        ["hdfs", "dfs", "-du", "-s", "-h", hdfs_path],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    print(f"[verify] total size: {size.stdout.strip()}")
+
+
+def main():
+    n_chunks = split_into_chunks(INPUT_CSV, PARTS_DIR, CHUNK_SIZE)
     prepare_hdfs_dir(HDFS_PATH)
     stream_to_hdfs(PARTS_DIR, HDFS_PATH, DELAY_SECONDS)
+    verify_ingestion(HDFS_PATH, n_chunks)
+
+
+if __name__ == "__main__":
+    main()
