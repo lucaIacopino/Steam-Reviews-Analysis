@@ -262,3 +262,62 @@ The four aggregates are written back to HDFS as Parquet under
 `/user/<user>/steam/output/analysis/`, ready to be loaded into MongoDB in
 phase 4. Parquet is columnar and compressed, so it scans far more cheaply
 than CSV once the data grows.
+
+### Phase 3b — Predicting recommendations with MLlib
+
+`notebooks/spark_ml.ipynb` turns the hypothesis into a supervised problem:
+predict `is_recommended` from five features — `hours`, `price_final`,
+`positive_ratio`, `year`, and the one-hot encoded `price_bucket`.
+
+Split: 400,336 training rows / 99,664 test rows, seed 42.
+
+#### Results
+
+| Model | AUC | Accuracy | F1 |
+|---|---:|---:|---:|
+| Logistic regression | 0.720 | 0.842 | 0.790 |
+| Random forest | 0.761 | 0.853 | 0.801 |
+| *Always predict "recommended"* | — | *0.845* | — |
+
+The accuracy column is the least informative one here. 84.5% of reviews are
+positive, so a model that blindly predicts "recommended" already scores
+0.845 — which the logistic regression fails to beat, and the random forest
+beats by less than a point.
+
+The confusion matrix for the random forest shows what is happening:
+
+| | predicted 0 | predicted 1 |
+|---|---:|---:|
+| **actual 0** | 1,410 | 14,076 |
+| **actual 1** | 622 | 83,556 |
+
+Of the 15,486 genuinely negative reviews in the test set, the model
+identifies 1,410 — about 9%. At the default 0.5 threshold it plays the
+majority class almost all the time.
+
+An AUC of 0.761 nonetheless says the model ranks reviews meaningfully: the
+signal exists, but the decision threshold is where it gets lost. Moving the
+threshold below 0.5 would recover negative-class recall at the cost of
+precision, which is the usual trade-off under class imbalance.
+
+#### Feature importances
+
+| Feature | Importance |
+|---|---:|
+| hours | 0.441 |
+| positive_ratio | 0.385 |
+| price_final | 0.077 |
+| price = free | 0.061 |
+| year | 0.033 |
+| price = mid | 0.002 |
+| price = high | 0.001 |
+
+Playtime is the strongest single predictor, which is the expected answer to
+the original hypothesis. The more interesting result is second place: the
+game's overall positive ratio on the store carries almost as much weight.
+What the crowd thinks of a game predicts an individual verdict nearly as
+well as how long that individual played it.
+
+Price contributes little once the free/paid distinction is accounted for —
+consistent with phase 3a, where free games behaved differently from every
+paid tier while the paid tiers largely resembled one another.
