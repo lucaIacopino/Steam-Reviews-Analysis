@@ -169,3 +169,96 @@ produce 500 splits. On a single-node pseudo-distributed cluster these run
 essentially serially and container startup dominates the actual work. On a
 real cluster the same 500 tasks would be spread across nodes and executed in
 parallel — this is precisely the property the architecture is designed for.
+
+### Phase 3a — Spark analysis
+
+`notebooks/spark_analysis.ipynb` reads the ingested chunks back from HDFS and
+extends the MapReduce result along two dimensions it does not cover: price
+and time.
+
+Run it with HDFS up:
+
+```bash
+jupyter notebook
+```
+
+#### Cross-check against MapReduce
+
+Before adding anything new, the notebook recomputes the phase 2 aggregation
+in Spark and joins it against the MapReduce output. All five buckets match
+exactly (`rate_diff = 0.0`), confirming that the two engines agree on the
+same input.
+
+#### Playtime and price
+
+Recommendation rate by playtime bucket and price bucket:
+
+| Playtime | free | low (<€10) | mid (€10-30) | high (>€30) |
+|---|---:|---:|---:|---:|
+| 0-1h | 37.8% | 55.0% | 36.2% | 30.4% |
+| 1-5h | 53.3% | 85.9% | 61.4% | 52.5% |
+| 5-20h | 72.2% | 93.6% | 86.2% | 81.2% |
+| 20-100h | 75.8% | 94.1% | 91.0% | 86.4% |
+| 100h+ | 74.9% | 91.5% | 90.8% | 90.6% |
+
+The effect of playtime is real but its size depends heavily on price. On
+expensive games the rate climbs 60 points across the range (30% to 91%):
+a player who paid a lot and bounced within the hour is the harshest
+reviewer there is. Cheap games start much higher (55%) and gain 37 points,
+suggesting a low price buys a good deal of tolerance.
+
+Free games are the exception to the overall pattern. They plateau around
+75%, well below the ~91% that paid games reach at high playtime, and are the
+only category where the rate stops rising (20-100h slightly outperforms
+100h+). Hundreds of hours in a free-to-play title evidently does not imply
+the same satisfaction as the same hours in a purchased one.
+
+The 0-1h row for cheap games rests on only 211 reviews, so its 55% is the
+least reliable figure in the table.
+
+#### Playtime by outcome
+
+Average and median hours, split by whether the review recommends the game:
+
+| Price | Outcome | Reviews | Avg hours | Median hours |
+|---|---|---:|---:|---:|
+| free | not recommended | 26,515 | 227.9 | 120.8 |
+| free | recommended | 72,376 | 253.1 | 147.7 |
+| low | not recommended | 1,803 | 155.1 | 57.2 |
+| low | recommended | 21,989 | 132.1 | 51.1 |
+| mid | not recommended | 19,011 | 185.6 | 68.9 |
+| mid | recommended | 148,547 | 219.5 | 121.5 |
+| high | not recommended | 30,048 | 117.8 | 39.4 |
+| high | recommended | 179,711 | 185.1 | 93.0 |
+
+The gap is widest on expensive games (median 39h against 93h) and reverses
+on cheap ones, the only bucket where players who did not recommend had
+logged more hours than those who did.
+
+#### Trend over time
+
+| Year | Reviews | Rate | Avg hours |
+|---|---:|---:|---:|
+| 2013 | 2,475 | 95.6% | 273.1 |
+| 2014 | 9,752 | 92.8% | 264.0 |
+| 2015 | 13,335 | 80.2% | 274.9 |
+| 2016 | 22,689 | 76.6% | 252.4 |
+| 2017 | 26,314 | 72.5% | 270.6 |
+| 2018 | 24,618 | 76.9% | 265.0 |
+| 2019 | 39,449 | 87.5% | 269.1 |
+| 2020 | 90,728 | 88.3% | 216.9 |
+| 2021 | 105,117 | 87.9% | 194.3 |
+| 2022 | 165,148 | 83.4% | 141.6 |
+
+The rate falls through the mid-2010s, bottoms out in 2017 and recovers from
+2019 onwards. Average playtime per review declines steadily after 2019,
+which is expected: recent reviews have had less time to accumulate hours.
+That correlation between year and playtime matters for the modelling step —
+the two variables carry overlapping information.
+
+#### Persisted output
+
+The four aggregates are written back to HDFS as Parquet under
+`/user/<user>/steam/output/analysis/`, ready to be loaded into MongoDB in
+phase 4. Parquet is columnar and compressed, so it scans far more cheaply
+than CSV once the data grows.
