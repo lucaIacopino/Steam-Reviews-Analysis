@@ -2,3 +2,5 @@ pandas
 numpy
 pyspark==3.5.1
 pymongo
+jupyter
+matplotlib
