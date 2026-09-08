@@ -8,7 +8,11 @@ and MongoDB.
 
 Does the playtime at the moment of the review affect the probability that a
 player recommends the game, and does this effect change depending on the
-game's genre/price?
+game's price?
+
+The dataset has no genre column, so the game-level dimension used throughout
+the analysis is price (grouped into free / low / mid / high buckets),
+alongside the store's own `rating` label.
 
 ## Dataset
 
