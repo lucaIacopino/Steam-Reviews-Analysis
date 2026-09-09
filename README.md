@@ -321,3 +321,94 @@ well as how long that individual played it.
 Price contributes little once the free/paid distinction is accounted for —
 consistent with phase 3a, where free games behaved differently from every
 paid tier while the paid tiers largely resembled one another.
+
+### Phase 4 — MongoDB
+
+`notebooks/mongodb_queries.ipynb` loads the phase 3 results into MongoDB and
+queries them.
+
+Spark writes through the official connector
+(`org.mongodb.spark:mongo-spark-connector_2.12:10.3.0`), so the data goes
+from HDFS to MongoDB without passing through the driver — the same code path
+would hold at any volume. The connector JAR is fetched automatically on the
+first run, which needs an internet connection.
+
+Requires HDFS and `mongod` to be running:
+
+```bash
+start-dfs.sh
+start-yarn.sh
+systemctl is-active mongod
+```
+
+#### Collections
+
+| Collection | Documents |
+|---|---:|
+| `recommendation_by_playtime` | 5 |
+| `recommendation_by_playtime_price` | 20 |
+| `hours_by_outcome` | 8 |
+| `recommendation_by_year` | 10 |
+| `model_metrics` | 2 |
+| `feature_importances` | 7 |
+| `reviews` | 50,097 |
+
+The six aggregates come straight from the Parquet files written in phases 3a
+and 3b. `reviews` holds a 10% sample of the raw review data, so the queries
+have something to work on beyond pre-computed summaries.
+
+#### Query 1 — invested but unconvinced
+
+Players with over 100 hours who still did not recommend the game, ranked by
+how many people found the review helpful:
+
+| Title | Hours | Helpful | Store positive ratio |
+|---|---:|---:|---:|
+| PUBG: BATTLEGROUNDS | 348.8 | 5,126 | 57 |
+| Grand Theft Auto V | 229.2 | 3,521 | 86 |
+| Mount & Blade II: Bannerlord | 150.6 | 2,859 | 87 |
+| DayZ | 447.4 | 1,737 | 74 |
+| PUBG: BATTLEGROUNDS | 219.5 | 1,729 | 57 |
+| Team Fortress 2 | 284.0 | 1,151 | 93 |
+| Counter-Strike: Global Offensive | 844.7 | 916 | 88 |
+| War Thunder | 439.9 | 741 | 75 |
+| The Elder Scrolls V: Skyrim SE | 853.7 | 693 | 94 |
+| The Sims™ 3 | 303.7 | 663 | 86 |
+
+Almost every entry is a long-running multiplayer or live-service title. These
+are the cases the aggregate rates smooth over: players with hundreds of hours
+invested who turn negative anyway, and whose reviews other users find
+unusually useful.
+
+#### Query 2 — recommendation rate by price bucket
+
+| Price bucket | Reviews | Rate | Avg hours |
+|---|---:|---:|---:|
+| low | 2,400 | 92.4% | 132.9 |
+| mid | 16,819 | 88.8% | 212.6 |
+| high | 20,932 | 85.7% | 176.9 |
+| free | 9,946 | 73.2% | 248.6 |
+
+The ordering matches phase 3a: cheap games do best, free games worst despite
+having by far the highest average playtime.
+
+#### Query 3 — recommendation rate by year
+
+| Year | Reviews | Rate | Avg hours |
+|---|---:|---:|---:|
+| 2013 | 248 | 94.4% | 284.1 |
+| 2014 | 981 | 93.0% | 260.9 |
+| 2015 | 1,314 | 80.9% | 288.4 |
+| 2016 | 2,274 | 77.3% | 255.5 |
+| 2017 | 2,683 | 72.4% | 277.6 |
+| 2018 | 2,431 | 77.3% | 270.1 |
+| 2019 | 3,981 | 87.9% | 261.1 |
+| 2020 | 9,139 | 87.9% | 213.7 |
+| 2021 | 10,392 | 88.3% | 193.1 |
+| 2022 | 16,617 | 83.2% | 142.8 |
+
+Computed on the 10% sample, these figures land within roughly a point of
+what Spark computed over all 500,000 rows — the same dip through 2017 and
+the same recovery afterwards. Two different engines over two different slices
+of the data agree, which is a reasonable check that neither pipeline is
+distorting the result.
