@@ -1,6 +1,6 @@
 # Steam Reviews — Big Data Analysis
 
-Project for the [course name] exam. The dataset is treated as if it came from
+The dataset is treated as if it came from
 a big-data source, and the pipeline is built with tools that would still work
 if it really did: Hadoop MapReduce, Spark and MongoDB.
 
